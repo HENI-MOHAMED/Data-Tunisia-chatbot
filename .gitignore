@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+temp.pdf
+temp.xls
+temp.xlsx
+.env
