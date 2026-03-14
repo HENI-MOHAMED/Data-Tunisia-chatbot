@@ -2,15 +2,22 @@ import os
 import json
 import requests
 import urllib3
-from g4f import Client
 from flask import Flask, request
+from twilio.twiml.messaging_response import MessagingResponse
+from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
 from twilio.twiml.messaging_response import MessagingResponse
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import pandas as pd
 from pdfminer.high_level import extract_text
 
-client = Client()
+client = OpenAI(
+    api_key=os.environ.get("deepseek_API"), 
+    base_url="https://api.deepseek.com"
+)
 # -----------------------------
 # TOOL: Query data.gov.tn
 # -----------------------------
@@ -53,7 +60,7 @@ def query_open_data(keyword: str):
                 results.append({
                     "dataset": dataset["title"],
                     "file": url,
-                    "content_preview": file_content[:1000]
+                    "content_preview": file_content[:2000]
                 })
 
             except Exception as e:
@@ -165,8 +172,7 @@ def webhook():
 
     try:
         response = client.chat.completions.create(
-            provider="Groq",
-            model="moonshotai/kimi-k2-instruct-0905",
+            model="deepseek-chat",
             messages=messages,
             tools=tools,
             tool_choice="auto"
@@ -207,8 +213,7 @@ def webhook():
                     })
 
             final = client.chat.completions.create(
-                provider="Groq",
-                model="moonshotai/kimi-k2-instruct-0905",
+                model="deepseek-chat",
                 messages=messages
             )
             answer = final.choices[0].message.content

@@ -1,7 +1,9 @@
 flask
 twilio
 gunicorn
-g4f[all]
+openai
+python-dotenv
+deepseek
 requests
 urllib3
 pandas
