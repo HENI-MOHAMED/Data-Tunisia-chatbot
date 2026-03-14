@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client
+from threading import Thread
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import pandas as pd
@@ -17,6 +19,12 @@ from pdfminer.high_level import extract_text
 client = OpenAI(
     api_key=os.environ.get("deepseek_API"), 
     base_url="https://api.deepseek.com"
+)
+
+# Initialize Twilio REST Client
+twilio_client = Client(
+    os.environ.get("TWILIO_ACCOUNT_SID"), 
+    os.environ.get("TWILIO_AUTH_TOKEN")
 )
 # -----------------------------
 # TOOL: Query data.gov.tn
@@ -144,31 +152,10 @@ app = Flask(__name__)
 # Note: For production, use a database (e.g. SQLite, PostgreSQL, Redis)
 user_sessions = {}
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    incoming_msg = request.values.get('Body', '').strip()
-    sender = request.values.get('From', '')
-
-    if not incoming_msg:
-        return 'OK', 200
-
-    # Initialize a session for new users
-    if sender not in user_sessions:
-        user_sessions[sender] = [
-            {
-                "role": "system",
-                "content": """  You are a research assistant that can search Tunisia open data. Respond in a friendly and concise manner suitable for WhatsApp.(you should always use your tool when the user ask you somthing) if you get files always give detailed summary of the file with the file name and the file url.
-                alwayse answer the quation from the data you get from the tool. 
-                Your user name is 'Anis Heni', he is a energy engineer and you are a Tunisian researcher. 
-
-
-                Created By: MedH
-                """
-            }
-        ]
-
-    messages = user_sessions[sender]
-    messages.append({"role": "user", "content": incoming_msg})
+def process_message_async(sender):
+    messages = user_sessions.get(sender, [])
+    if not messages:
+        return
 
     # Keep only the system prompt + the last 10 messages to avoid huge API costs
     if len(messages) > 11:
@@ -236,10 +223,55 @@ def webhook():
     if len(answer) > 1599:
         answer = answer[:1595] + "..."
 
-    # Generate Twilio Response
+    # Send message via Twilio REST API
+    twilio_phone = os.environ.get("TWILIO_PHONE_NUMBER")
+    if twilio_phone and twilio_client.username:
+        try:
+            twilio_client.messages.create(
+                from_=twilio_phone,
+                body=answer,
+                to=sender
+            )
+            print(f"[Successfully sent async message to {sender}]")
+        except Exception as e:
+            print(f"[Error sending Twilio message: {e}]")
+    else:
+        print(f"[WARNING] TWILIO_PHONE_NUMBER or credentials not set! Could not send async message to {sender}:\n{answer}")
+
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    incoming_msg = request.values.get('Body', '').strip()
+    sender = request.values.get('From', '')
+
+    if not incoming_msg:
+        return 'OK', 200
+
+    # Initialize a session for new users
+    if sender not in user_sessions:
+        user_sessions[sender] = [
+            {
+                "role": "system",
+                "content": """  You are a research assistant that can search Tunisia open data. Respond in a friendly and concise manner suitable for WhatsApp.(you should always use your tool when the user ask you somthing) if you get files always give detailed summary of the file with the file name and the file url.
+                alwayse answer the quation from the data you get from the tool. 
+                Your user name is 'Anis Heni', he is a energy engineer and you are a Tunisian researcher. 
+
+
+                Created By: MedH
+                """
+            }
+        ]
+
+    messages = user_sessions[sender]
+    messages.append({"role": "user", "content": incoming_msg})
+
+    # Start thinking thread
+    thread = Thread(target=process_message_async, args=(sender,))
+    thread.start()
+
+    # Generate immediate 200 OK Response to prevent Twilio timeout
     resp = MessagingResponse()
-    resp.message(answer)
-    return str(resp)
+    return str(resp), 200, {'Content-Type': 'text/xml'}
 
 
 if __name__ == '__main__':
