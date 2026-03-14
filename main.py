@@ -170,6 +170,11 @@ def webhook():
     messages = user_sessions[sender]
     messages.append({"role": "user", "content": incoming_msg})
 
+    # Keep only the system prompt + the last 10 messages to avoid huge API costs
+    if len(messages) > 11:
+        messages = [messages[0]] + messages[-10:]
+        user_sessions[sender] = messages
+
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",
